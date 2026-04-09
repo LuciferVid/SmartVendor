@@ -1,0 +1,206 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./prisma/dev.db"
+}
+
+// ============================================================================
+// Core Models
+// ============================================================================
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      String   @default("STARTER") // Plan: STARTER, GROWTH, ENTERPRISE
+  logo      String?
+  industry  String?
+  timezone  String   @default("Asia/Kolkata")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  users          User[]
+  vendors        Vendor[]
+  contracts      Contract[]
+  purchaseOrders PurchaseOrder[]
+  invoices       Invoice[]
+  notifications  Notification[]
+
+  @@map("workspaces")
+}
+
+// Plan values: STARTER, GROWTH, ENTERPRISE (stored as strings)
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String   @unique
+  name      String
+  avatarUrl String?
+  role      String   @default("PROCUREMENT") // UserRole: ADMIN, PROCUREMENT, FINANCE
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  approvedPOs   PurchaseOrder[] @relation("ApprovedBy")
+  notifications Notification[]
+
+  @@index([workspaceId])
+  @@index([clerkId])
+  @@map("users")
+}
+
+// Enum UserRole values: ADMIN, PROCUREMENT, FINANCE (stored as strings)
+
+model Vendor {
+  id          String   @id @default(cuid())
+  name        String
+  contactName String?
+  email       String?
+  phone       String?
+  address     String?
+  category    String?
+  gstin       String?
+  rating      Int      @default(3) // 1-5
+  status      String   @default("ACTIVE") // VendorStatus: ACTIVE, INACTIVE, BLACKLISTED
+  tags        String   @default("") // JSON array stored as string, e.g., "[\"steel\",\"reliable\"]"
+  notes       String?
+  totalSpend  Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  contracts      Contract[]
+  purchaseOrders PurchaseOrder[]
+  invoices       Invoice[]
+
+  @@index([workspaceId])
+  @@map("vendors")
+}
+
+model Contract {
+  id            String    @id @default(cuid())
+  title         String
+  startDate     DateTime
+  endDate       DateTime
+  value         Float
+  currency      String    @default("INR")
+  fileUrl       String?
+  status        String    @default("ACTIVE") // ContractStatus: ACTIVE, EXPIRING_SOON, EXPIRED
+  tags          String    @default("") // JSON array stored as string
+  autoReminder  Boolean   @default(true)
+  lastAlertSent DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([vendorId])
+  @@index([endDate])
+  @@map("contracts")
+}
+
+model PurchaseOrder {
+  id              String    @id @default(cuid())
+  poNumber        String    @unique // Auto-generated like PO-2024-001
+  items           String // JSON array stored as string, e.g., "[{\"name\":\"item\",\"qty\":10}]"
+  subtotal        Float     @default(0)
+  tax             Float     @default(0)
+  total           Float     @default(0)
+  notes           String?
+  deliveryAddress String?
+  status          String    @default("DRAFT") // POStatus: DRAFT, PENDING_APPROVAL, APPROVED, SENT, FULFILLED, CANCELLED
+  sentAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  approvedBy String?
+  approver   User?   @relation("ApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+
+  invoices Invoice[]
+
+  @@index([workspaceId])
+  @@index([vendorId])
+  @@index([status])
+  @@map("purchase_orders")
+}
+
+model Invoice {
+  id               String    @id @default(cuid())
+  invoiceNumber    String
+  amount           Float
+  dueDate          DateTime
+  status           String    @default("UNPAID") // InvoiceStatus: UNPAID, PAID, OVERDUE, DISPUTED
+  paidAt           DateTime?
+  paymentReference String?
+  fileUrl          String?
+  notes            String?
+  lastReminderSent DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  poId String?
+  po   PurchaseOrder? @relation(fields: [poId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+  @@index([vendorId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("invoices")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String // NotificationType: CONTRACT_EXPIRY, INVOICE_DUE, PO_APPROVAL, PO_CREATED, VENDOR_ADDED
+  message   String
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  // Relations
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+// NotificationType values: CONTRACT_EXPIRY, INVOICE_DUE, PO_APPROVAL, PO_CREATED, VENDOR_ADDED (stored as strings)
